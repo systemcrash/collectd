@@ -772,10 +772,9 @@ static int plugin_write_enqueue(value_list_t const *vl) /* {{{ */
   return 0;
 } /* }}} int plugin_write_enqueue */
 
-static value_list_t *plugin_write_dequeue(void) /* {{{ */
+static write_queue_t *plugin_write_dequeue(void) /* {{{ */
 {
   write_queue_t *q;
-  value_list_t *vl;
 
   pthread_mutex_lock(&write_lock);
 
@@ -788,32 +787,37 @@ static value_list_t *plugin_write_dequeue(void) /* {{{ */
   }
 
   q = write_queue_head;
-  write_queue_head = q->next;
-  write_queue_length -= 1;
-  if (write_queue_head == NULL) {
-    write_queue_tail = NULL;
-    assert(0 == write_queue_length);
+  for (long i = 0; i < 1; i++) {
+    (void)plugin_set_ctx(write_queue_head->ctx);
+    write_queue_head = write_queue_head->next;
+    write_queue_length--;
+    if (write_queue_head == NULL) {
+      write_queue_tail = NULL;
+      assert(0 == write_queue_length);
+      break;
+    }
   }
 
   pthread_mutex_unlock(&write_lock);
 
-  (void)plugin_set_ctx(q->ctx);
-
-  vl = q->vl;
-  sfree(q);
-  return vl;
+  // sfree(q);
+  return q;
 } /* }}} value_list_t *plugin_write_dequeue */
 
 static void *plugin_write_thread(void __attribute__((unused)) * args) /* {{{ */
 {
   while (write_loop) {
-    value_list_t *vl = plugin_write_dequeue();
-    if (vl == NULL)
-      continue;
-
-    plugin_dispatch_values_internal(vl);
-
-    plugin_value_list_free(vl);
+    write_queue_t *qhead = plugin_write_dequeue();
+    while (qhead != NULL) {
+      write_queue_t *q = qhead;
+      value_list_t *vl = q->vl;
+      if (vl != NULL) {
+        plugin_dispatch_values_internal(vl);
+        plugin_value_list_free(vl);
+      }
+      qhead = qhead->next;
+      sfree(q);
+    }
   }
 
   pthread_exit(NULL);
