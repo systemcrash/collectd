@@ -809,18 +809,17 @@ static void *plugin_write_thread(void __attribute__((unused)) * args) /* {{{ */
 {
   while (write_loop) {
     write_queue_t *qhead = NULL;
-    long batch_size = plugin_write_dequeue(qhead, 1);
+    long batch_size = plugin_write_dequeue(qhead, 50);
     while (batch_size > 0 && qhead != NULL ) {
       write_queue_t *q = qhead;
       (void)plugin_set_ctx(q->ctx);
-      value_list_t *vl = q->vl;
-      sfree(q);
-      if (vl != NULL) {
-        plugin_dispatch_values_internal(vl);
-        plugin_value_list_free(vl);
+      if (q->vl != NULL) {
+        plugin_dispatch_values_internal(q->vl);
+        plugin_value_list_free(q->vl);
       }
       batch_size--;
       qhead = qhead->next;
+      sfree(q);
     }
   }
 
